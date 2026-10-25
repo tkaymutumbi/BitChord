@@ -10,7 +10,7 @@ import android.media.AudioManager
 import android.media.MediaMetadataRetriever
 import android.media.audiofx.AudioEffect
 import android.net.Uri
-import android.widget.Toast
+import com.music.bitchord.ui.components.IslandToast
 import android.os.Bundle
 import android.os.Handler
 import android.os.SystemClock
@@ -739,7 +739,7 @@ class PlaybackService : MediaLibraryService() {
         scope = scope,
         localPlayer = { player },
         resolve = ::resolveForCast,
-        say = { message -> Toast.makeText(applicationContext, message, Toast.LENGTH_SHORT).show() },
+        say = { message -> IslandToast.show(applicationContext, message) },
     )
 
     /**

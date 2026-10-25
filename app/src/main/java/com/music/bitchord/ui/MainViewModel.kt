@@ -120,6 +120,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
      * declared after [init] would still be null when that runs.
      */
     private var homeContinuation: String? = null
+    /** Titles of the shelves painted from disk, until the live feed replaces them. */
+    private var homeCachedTitles: Set<String> = emptySet()
 
     /** Titles already on screen, so a later page can't repeat a shelf. */
     private val homeSeenTitles = mutableSetOf<String>()
@@ -1635,6 +1637,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _home.value = UiState.Loading
         homeContinuation = null
         homeSeenTitles.clear()
+        homeCachedTitles = emptySet()
         _homeLoadingMore.value = false
         _homeRecentlyPlayedLoading.value = _signedIn.value
         // The core feed plus one browse per supplement. Recently played is left
@@ -1644,11 +1647,35 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             launch {
                 try {
-                    YtMusicRepository.home()
+                    // Last session's feed first, so the page is not a skeleton while the
+                    // network answers. The live response replaces it below.
+                    YtMusicRepository.cachedHome(identity)?.let { cached ->
+                        if (isCurrentHomeLoad(identity, generation) && _home.value !is UiState.Success) {
+                            publishHomeShelves(cached.shelves)
+                            homeCachedTitles = cached.shelves.mapTo(HashSet()) { it.title.lowercase(Locale.ROOT) }
+                        }
+                    }
+                    YtMusicRepository.home(identity)
                         .onSuccess { feed ->
                             if (!isCurrentHomeLoad(identity, generation)) return@onSuccess
                             homeContinuation = feed.continuation
-                            publishHomeShelves(feed.shelves)
+                            if (homeCachedTitles.isEmpty()) {
+                                publishHomeShelves(feed.shelves)
+                            } else {
+                                // Swap the cached shelves for the live ones. Shelves that arrived
+                                // meanwhile (Recently played in front, the supplements behind)
+                                // keep their places around them.
+                                val existing = (_home.value as? UiState.Success)?.data.orEmpty()
+                                fun HomeShelf.cached() = title.lowercase(Locale.ROOT) in homeCachedTitles
+                                val before = existing.takeWhile { !it.cached() }
+                                val after = existing.dropWhile { !it.cached() }.filterNot { it.cached() }
+                                homeSeenTitles.clear()
+                                (before + after).forEach { homeSeenTitles.add(it.title.lowercase(Locale.ROOT)) }
+                                val fresh = feed.shelves.withoutRepeatsOf(before + after)
+                                    .filter { homeSeenTitles.add(it.title.lowercase(Locale.ROOT)) }
+                                homeCachedTitles = emptySet()
+                                _home.value = UiState.Success(before + fresh + after)
+                            }
                         }
                         .onFailure { failure ->
                             if (isCurrentHomeLoad(identity, generation) && _home.value !is UiState.Success) {

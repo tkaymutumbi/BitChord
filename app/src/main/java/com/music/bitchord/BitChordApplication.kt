@@ -28,6 +28,7 @@ import com.music.bitchord.playback.AudioCache
 import com.music.bitchord.playback.LastPlayed
 import com.music.bitchord.playback.BoundedContextPersistence
 import com.music.bitchord.playback.OriginalVersion
+import com.music.bitchord.data.YtMusicRepository
 import com.music.bitchord.data.innertube.Innertube
 import com.music.bitchord.data.innertube.AndroidStreamHooks
 import com.music.bitchord.data.listentogether.ListenTogether
@@ -71,6 +72,7 @@ class BitChordApplication : Application(), SingletonImageLoader.Factory {
         }
         // The per-app language picker, which YouTube Music's `hl` follows.
         // Full tag (zh-Hant / zh-Hans preserved); Innertube maps to hl/gl.
+        YtMusicRepository.cacheDir = cacheDir
         Innertube.appLanguage = { AppCompatDelegate.getApplicationLocales().get(0)?.toLanguageTag() }
         migrateScriptOnlyAppLocale()
         LyricsTranslation.cacheDir = cacheDir

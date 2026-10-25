@@ -85,14 +85,11 @@ fun UpdateAvailableDialog(
     notes: String?,
     hazeState: HazeState,
     onDismiss: () -> Unit,
-    onDownload: () -> Unit,
-    onCancelDownload: () -> Unit,
-    onInstall: () -> Unit,
-    onOpenReleasePage: () -> Unit,
+    onViewRelease: () -> Unit,
+    onSkipVersion: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val reduceDynamicBlur by AppSettings.reduceDynamicBlur.collectAsStateWithLifecycle()
-    val state by AppUpdateChecker.download.collectAsStateWithLifecycle()
     val shape = RoundedCornerShape(ALERT_CORNER)
 
     Box(
@@ -139,7 +136,7 @@ fun UpdateAvailableDialog(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    text = stringResource(R.string.software_update),
+                    text = stringResource(R.string.upstream_notice_title),
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontSize = 17.sp,
                         fontWeight = FontWeight.W600,
@@ -148,16 +145,7 @@ fun UpdateAvailableDialog(
                     textAlign = TextAlign.Center,
                 )
                 Text(
-                    text = when (state) {
-                        is AppUpdateChecker.DownloadState.Downloading ->
-                            stringResource(R.string.update_downloading_body, version)
-                        is AppUpdateChecker.DownloadState.Ready ->
-                            stringResource(R.string.update_ready_body, version)
-                        is AppUpdateChecker.DownloadState.Failed ->
-                            stringResource(R.string.update_failed_body, version)
-                        else ->
-                            stringResource(R.string.update_available_body, version)
-                    },
+                    text = stringResource(R.string.upstream_notice_body, version),
                     modifier = Modifier.padding(top = 4.dp),
                     style = MaterialTheme.typography.bodyMedium.copy(
                         fontSize = 13.sp,
@@ -166,40 +154,6 @@ fun UpdateAvailableDialog(
                     color = MaterialTheme.colorScheme.onSurface,
                     textAlign = TextAlign.Center,
                 )
-
-                // The download's progress, drawn as a thin fill across a
-                // hairline track — same weight as [AlertRule], so it reads as
-                // part of the card rather than a widget bolted onto it.
-                val downloading = state as? AppUpdateChecker.DownloadState.Downloading
-                if (downloading != null || state is AppUpdateChecker.DownloadState.Failed) {
-                    Box(
-                        Modifier
-                            .padding(top = 12.dp)
-                            .fillMaxWidth()
-                            .height(DOWNLOAD_ROW_HEIGHT)
-                            .clip(RoundedCornerShape(DOWNLOAD_ROW_HEIGHT / 2))
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.14f)),
-                    ) {
-                        if (downloading != null && downloading.fraction > 0f) {
-                            Box(
-                                Modifier
-                                    .fillMaxWidth(downloading.fraction)
-                                    .height(DOWNLOAD_ROW_HEIGHT)
-                                    .clip(RoundedCornerShape(DOWNLOAD_ROW_HEIGHT / 2))
-                                    .background(MaterialTheme.colorScheme.primary),
-                            )
-                        }
-                    }
-                }
-                if (state is AppUpdateChecker.DownloadState.Failed) {
-                    Text(
-                        text = (state as AppUpdateChecker.DownloadState.Failed).message,
-                        modifier = Modifier.padding(top = 6.dp),
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.error,
-                        textAlign = TextAlign.Center,
-                    )
-                }
 
                 // The release's own notes, rendered as Markdown rather than
                 // dumped as raw text — GitHub release bodies lean on headings,
@@ -240,26 +194,11 @@ fun UpdateAvailableDialog(
             }
 
             AlertRule()
-            when (state) {
-                is AppUpdateChecker.DownloadState.Downloading -> {
-                    AlertAction(label = stringResource(R.string.cancel), emphasised = false, onClick = onCancelDownload)
-                }
-                is AppUpdateChecker.DownloadState.Ready -> {
-                    AlertAction(label = stringResource(R.string.install_now), emphasised = true, onClick = onInstall)
-                    AlertRule()
-                    AlertAction(label = stringResource(R.string.later), emphasised = false, onClick = onDismiss)
-                }
-                is AppUpdateChecker.DownloadState.Failed -> {
-                    AlertAction(label = stringResource(R.string.try_again), emphasised = true, onClick = onDownload)
-                    AlertRule()
-                    AlertAction(label = stringResource(R.string.open_releases_page), emphasised = false, onClick = onOpenReleasePage)
-                }
-                else -> {
-                    AlertAction(label = stringResource(R.string.download_now), emphasised = true, onClick = onDownload)
-                    AlertRule()
-                    AlertAction(label = stringResource(R.string.remind_me_later), emphasised = false, onClick = onDismiss)
-                }
-            }
+            AlertAction(label = stringResource(R.string.view_release), emphasised = true, onClick = onViewRelease)
+            AlertRule()
+            AlertAction(label = stringResource(R.string.skip_this_version), emphasised = false, onClick = onSkipVersion)
+            AlertRule()
+            AlertAction(label = stringResource(R.string.later), emphasised = false, onClick = onDismiss)
         }
     }
 }

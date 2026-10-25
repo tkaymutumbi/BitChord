@@ -90,8 +90,10 @@ android {
         abi {
             isEnable = true
             reset()
-            include("armeabi-v7a", "arm64-v8a", "x86_64")
-            isUniversalApk = true
+            // `-PabiOnly=arm64-v8a` builds just that one APK, for a quick phone build.
+            val only = providers.gradleProperty("abiOnly").orNull
+            if (only != null) include(only) else include("armeabi-v7a", "arm64-v8a", "x86_64")
+            isUniversalApk = only == null
         }
     }
 

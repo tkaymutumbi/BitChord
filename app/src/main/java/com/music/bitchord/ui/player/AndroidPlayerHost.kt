@@ -8,7 +8,7 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import android.widget.Toast
+import com.music.bitchord.ui.components.IslandToast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
@@ -170,7 +170,7 @@ class AndroidPlayerHost(context: Context) : PlayerHost {
         }
 
     override fun showMessage(message: String) {
-        main.post { Toast.makeText(app, message, Toast.LENGTH_SHORT).show() }
+        main.post { IslandToast.show(app, message) }
     }
 
     override val castState: StateFlow<CastUi> by lazy {

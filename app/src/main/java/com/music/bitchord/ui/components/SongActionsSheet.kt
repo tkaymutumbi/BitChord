@@ -4,8 +4,17 @@ import com.music.bitchord.R
 
 import android.net.Uri
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.roundToInt
+import kotlin.math.sin
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -48,6 +57,8 @@ import androidx.compose.material.icons.rounded.ThumbDownOffAlt
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Videocam
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -58,6 +69,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,6 +82,8 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -194,8 +209,14 @@ fun SongActionsSheet(
      * held row itself above them.
      */
     presentation: SongActionsPresentation = SongActionsPresentation.Sheet,
+    /** Opens this sheet directly on the timer when launched from Now Playing. */
+    initialSleepTimerPicker: Boolean = false,
+    onInitialSleepTimerPickerShown: () -> Unit = {},
 ) {
-    var pickingSleepTimer by remember { mutableStateOf(false) }
+    var pickingSleepTimer by remember(song.videoId) { mutableStateOf(initialSleepTimerPicker) }
+    LaunchedEffect(song.videoId, initialSleepTimerPicker) {
+        if (initialSleepTimerPicker) onInitialSleepTimerPickerShown()
+    }
     val menu = presentation == SongActionsPresentation.Menu
     // Read from the thumbnail the row that opened this sheet was already
     // showing, not a larger copy of it: the tint is a blur and a handful of
@@ -643,12 +664,23 @@ private fun WebDavUploadRow(
     }
 }
 
+/** A full turn of the sleep-timer ring. */
+private const val RING_MAX_MINUTES = 120
+
 /** End of track or a duration, plus a way out once one is running. */
 @Composable
 private fun SleepTimerPicker(palette: ArtworkPalette, onBack: () -> Unit) {
     val chosen by SleepTimer.minutes.collectAsStateWithLifecycle()
     val afterTrack by SleepTimer.afterTrack.collectAsStateWithLifecycle()
     val countdown = sleepTimerCountdown()
+    var minutes by remember { mutableIntStateOf(chosen ?: 30) }
+    val active = chosen != null || afterTrack
+    val ringTrackColor = MaterialTheme.colorScheme.surfaceVariant
+    val ringProgress = if (chosen != null && countdown != null && minutes == chosen) {
+        (SleepTimer.remainingMs()?.toFloat()?.div(chosen!! * 60_000f) ?: 0f).coerceIn(0f, 1f)
+    } else {
+        (minutes.toFloat() / RING_MAX_MINUTES).coerceIn(0f, 1f)
+    }
 
     Column(Modifier.fillMaxWidth()) {
         Row(
@@ -682,9 +714,126 @@ private fun SleepTimerPicker(palette: ArtworkPalette, onBack: () -> Unit) {
             }
         }
         HorizontalDivider(thickness = 0.5.dp, color = palette.divider)
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 18.dp, bottom = 8.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(
+                Modifier
+                    .size(188.dp)
+                    .pointerInput(Unit) {
+                        // The ring is the control: dragging it anywhere sets the
+                        // duration from the finger's angle. A crossing of the top
+                        // pins to the end it came from so 120 never wraps to 5.
+                        var last = minutes.toFloat() / RING_MAX_MINUTES
+                        detectDragGestures(
+                            onDragStart = { last = minutes.toFloat() / RING_MAX_MINUTES },
+                        ) { change, _ ->
+                            change.consume()
+                            val dx = change.position.x - size.width / 2f
+                            val dy = change.position.y - size.height / 2f
+                            var frac = ((atan2(dy, dx) * 180f / Math.PI.toFloat() + 90f + 360f) % 360f) / 360f
+                            if (last > 0.75f && frac < 0.25f) frac = 1f
+                            if (last < 0.25f && frac > 0.75f) frac = 0f
+                            last = frac
+                            minutes = ((frac * RING_MAX_MINUTES / 5f).roundToInt() * 5).coerceIn(5, RING_MAX_MINUTES)
+                        }
+                    },
+            ) {
+                val stroke = 10.dp.toPx()
+                val inset = stroke / 2f
+                val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+                val topLeft = androidx.compose.ui.geometry.Offset(inset, inset)
+                drawArc(
+                    color = ringTrackColor,
+                    startAngle = -90f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = stroke),
+                )
+                drawArc(
+                    color = palette.accent,
+                    startAngle = -90f,
+                    sweepAngle = 360f * ringProgress,
+                    useCenter = false,
+                    topLeft = topLeft,
+                    size = arcSize,
+                    style = Stroke(width = stroke, cap = StrokeCap.Round),
+                )
+                // Grab handle at the end of the arc.
+                val theta = (ringProgress * 360f - 90f) * Math.PI.toFloat() / 180f
+                val r = (size.width - stroke) / 2f
+                drawCircle(
+                    color = Color.White,
+                    radius = stroke * 1.05f,
+                    center = androidx.compose.ui.geometry.Offset(
+                        size.width / 2f + r * cos(theta),
+                        size.height / 2f + r * sin(theta),
+                    ),
+                )
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = stringResource(R.string.pause_in_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    text = minutes.toString(),
+                    style = MaterialTheme.typography.displaySmall,
+                    color = MaterialTheme.colorScheme.onBackground,
+                )
+                Text(
+                    text = pluralStringResource(R.plurals.minute_count, minutes, minutes),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
 
-        // Finishing the song is the one people reach for at the end of a
-        // listen, so it leads rather than sitting under the durations.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SleepTimer.PRESETS.forEach { preset ->
+                val selected = minutes == preset
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.surfaceVariant
+                            else Color.Transparent,
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (selected) palette.accent else MaterialTheme.colorScheme.outline,
+                            shape = RoundedCornerShape(13.dp),
+                        )
+                        .clickable { minutes = preset }
+                        .padding(vertical = 9.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(
+                        text = preset.toString(),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (selected) palette.accent else MaterialTheme.colorScheme.onBackground,
+                    )
+                    Text(
+                        text = stringResource(R.string.minute_unit_short),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
         SleepOption(
             label = stringResource(R.string.after_this_song),
             selected = afterTrack,
@@ -693,21 +842,22 @@ private fun SleepTimerPicker(palette: ArtworkPalette, onBack: () -> Unit) {
             SleepTimer.startAfterTrack()
             onBack()
         }
-        SleepTimer.PRESETS.forEach { minutes ->
-            SleepOption(
-                label = if (minutes == 60) {
-                    stringResource(R.string.one_hour)
-                } else {
-                    pluralStringResource(R.plurals.minute_count, minutes, minutes)
-                },
-                selected = minutes == chosen,
-                accent = palette.accent,
-            ) {
+
+        Button(
+            onClick = {
                 SleepTimer.start(minutes)
                 onBack()
-            }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 8.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(),
+        ) {
+            Text(stringResource(if (active) R.string.update_timer else R.string.start_timer))
         }
-        if (chosen != null || afterTrack) {
+
+        if (active) {
             ActionRow(Icons.Rounded.Close, stringResource(R.string.turn_off_timer), accent = palette.accent) {
                 SleepTimer.cancel()
                 onBack()

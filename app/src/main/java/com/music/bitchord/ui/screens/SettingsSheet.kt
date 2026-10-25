@@ -7,7 +7,7 @@ import android.media.AudioFormat
 import android.media.audiofx.AudioEffect
 import android.net.Uri
 import android.provider.Settings
-import android.widget.Toast
+import com.music.bitchord.ui.components.IslandToast
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -1222,7 +1222,7 @@ fun SettingsScreen(
                         val loader = SingletonImageLoader.get(context)
                         loader.memoryCache?.clear()
                         loader.diskCache?.clear()
-                        Toast.makeText(context, context.getString(R.string.image_cache_cleared), Toast.LENGTH_SHORT).show()
+                        IslandToast.show(context, context.getString(R.string.image_cache_cleared))
                     },
                 )
             }
@@ -1663,7 +1663,7 @@ fun SettingsScreen(
                 TextButton(onClick = {
                     confirmClearSongCache = false
                     AudioCache.clear {
-                        Toast.makeText(context, context.getString(R.string.song_cache_cleared), Toast.LENGTH_SHORT).show()
+                        IslandToast.show(context, context.getString(R.string.song_cache_cleared))
                     }
                 }) {
                     Text(stringResource(R.string.clear))
@@ -1932,7 +1932,7 @@ internal fun openEqualizer(context: Context, sessionId: Int) {
         putExtra(AudioEffect.EXTRA_CONTENT_TYPE, AudioEffect.CONTENT_TYPE_MUSIC)
     }
     runCatching { context.startActivity(intent) }.onFailure {
-        Toast.makeText(context, context.getString(R.string.no_equalizer), Toast.LENGTH_SHORT).show()
+        IslandToast.show(context, context.getString(R.string.no_equalizer), IslandToast.Kind.Error)
     }
 }
 

@@ -65,6 +65,18 @@ object AppUpdateChecker {
     @Volatile
     private var downloadCancelled = false
 
+    private const val PREFS = "upstream_notice"
+    private const val KEY_SKIPPED = "skipped_version"
+
+    /** The upstream version the user chose to ignore, or null. */
+    fun skippedVersion(context: Context): String? =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_SKIPPED, null)
+
+    /** Hides this upstream release until a newer one is published. */
+    fun skipVersion(context: Context, version: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_SKIPPED, version).apply()
+    }
+
     suspend fun check() = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder().url(LATEST_RELEASE_URL).build()

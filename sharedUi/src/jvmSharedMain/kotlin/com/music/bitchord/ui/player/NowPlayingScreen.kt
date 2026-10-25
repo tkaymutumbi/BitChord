@@ -32,6 +32,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitVerticalTouchSlopOrCancellation
@@ -64,6 +65,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Undo
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
+import androidx.compose.material.icons.rounded.Bedtime
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.MoreHoriz
@@ -741,6 +743,9 @@ fun NowPlayingScreen(
      * width comfortably clears a phone's landscape width.
      */
     windowHeight: Dp,
+    /** Direct Now Playing access to the sleep timer; null on hosts without it. */
+    onOpenSleepTimer: (() -> Unit)? = null,
+    sleepTimerStatus: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -1507,7 +1512,7 @@ fun NowPlayingScreen(
         // Keep the current output caption visible in every state.
         Spacer(Modifier.height(18.dp))
         Box(
-            modifier = Modifier.fillMaxWidth().height(20.dp),
+            modifier = Modifier.fillMaxWidth().height(28.dp),
             contentAlignment = Alignment.TopCenter,
         ) {
             OutputCaption(
@@ -1515,6 +1520,13 @@ fun NowPlayingScreen(
                 onOpenOutput = openAudioOutput,
                 onOpenMembers = openListenTogetherMembers,
             )
+            if (onOpenSleepTimer != null) {
+                PlayerSleepTimerShortcut(
+                    status = sleepTimerStatus,
+                    onClick = onOpenSleepTimer,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(end = 14.dp),
+                )
+            }
         }
     }
 
@@ -3650,6 +3662,35 @@ fun NowPlayingScreen(
                 }
                 playerOverlays()
             }
+        }
+    }
+}
+
+@Composable
+private fun PlayerSleepTimerShortcut(
+    status: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val tint = LocalPlayerTint.current
+    Row(
+        modifier = modifier
+            .clip(CircleShape)
+            .background(tint.copy(alpha = 0.16f))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Bedtime,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(16.dp),
+        )
+        // Idle shows the moon alone; a running timer adds its countdown.
+        if (status != null) {
+            Spacer(Modifier.width(5.dp))
+            Text(text = status, style = MaterialTheme.typography.labelMedium, color = tint)
         }
     }
 }

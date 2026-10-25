@@ -142,6 +142,11 @@
     <string name="dolby_atmos_open_failed">Couldn’t open Dolby Atmos settings</string>
     <string name="update_available">Update available: v%1$s</string>
     <string name="software_update">Software Update</string>
+    <string name="upstream_notice_title">New in upstream BitChord</string>
+    <string name="upstream_notice_body">kushagrasinghx released v%1$s. Your app is unchanged.</string>
+    <string name="upstream_notice_icon">New upstream release: v%1$s</string>
+    <string name="view_release">View release</string>
+    <string name="skip_this_version">Skip this version</string>
     <string name="update_available_body">bitchord %1$s is available to download.</string>
     <string name="update_downloading_body">Downloading bitchord %1$s…</string>
     <string name="update_ready_body">bitchord %1$s is ready to install.</string>
@@ -613,6 +618,13 @@
     <string name="pause_after_a_while">Pause playback after a while</string>
     <string name="pause_after_song">Pausing when this song ends</string>
     <string name="pause_countdown">%1$s until playback pauses</string>
+    <string name="pause_in_label">Pause in</string>
+    <string name="minute_unit_short">min</string>
+    <string name="increase_timer">Increase timer duration</string>
+    <string name="decrease_timer">Decrease timer duration</string>
+    <string name="start_timer">Start timer</string>
+    <string name="update_timer">Update timer</string>
+    <string name="set_timer">Set timer</string>
     <string name="play_to_preview">Play something to fill in the preview.</string>
     <string name="playlist_name">Playlist name</string>
     <string name="presence">Presence</string>

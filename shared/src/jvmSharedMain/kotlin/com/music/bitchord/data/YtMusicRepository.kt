@@ -30,6 +30,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -60,9 +61,31 @@ object YtMusicRepository {
      * shelves the same way the official app does as you scroll; signed out
      * it's empty and there's nothing more to fetch.
      */
-    suspend fun home(): Result<HomeFeed> = call("home") {
+    suspend fun home(cacheKey: String? = null): Result<HomeFeed> = call("home") {
         val home = Innertube.browse("FEmusic_home")
-        HomeFeed(InnertubeParser.parseHome(home), InnertubeParser.continuationToken(home))
+        val feed = HomeFeed(InnertubeParser.parseHome(home), InnertubeParser.continuationToken(home))
+        // Only a response that parsed into shelves is worth showing next launch.
+        if (feed.shelves.isNotEmpty()) runCatching { homeCacheFile(cacheKey)?.writeText(home.toString()) }
+        feed
+    }
+
+    /** Where the last Home response is kept, so the Play page can paint before the network answers. */
+    @Volatile
+    var cacheDir: java.io.File? = null
+
+    private fun homeCacheFile(key: String?): java.io.File? =
+        cacheDir?.let { java.io.File(it, "home-feed-${(key ?: "guest").hashCode()}.json") }
+
+    /**
+     * The last Home feed this listener loaded, parsed from the stored response, or null when there
+     * is none. No continuation: paging resumes from the live response once it arrives.
+     */
+    suspend fun cachedHome(cacheKey: String? = null): HomeFeed? = withContext(Dispatchers.IO) {
+        runCatching {
+            val file = homeCacheFile(cacheKey)?.takeIf { it.isFile } ?: return@runCatching null
+            val shelves = InnertubeParser.parseHome(Json.parseToJsonElement(file.readText()) as JsonObject)
+            shelves.takeIf { it.isNotEmpty() }?.let { HomeFeed(it, null) }
+        }.getOrNull()
     }
 
     /** Recently played is rendered independently, at the top of the Play page. */

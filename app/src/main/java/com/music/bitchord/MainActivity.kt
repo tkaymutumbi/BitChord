@@ -9,7 +9,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.View
-import android.widget.Toast
+import com.music.bitchord.ui.components.IslandToast
+import com.music.bitchord.ui.components.IslandToastHost
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -75,7 +76,7 @@ import androidx.compose.material.icons.rounded.IosShare
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.Sort
-import androidx.compose.material.icons.rounded.Upgrade
+import androidx.compose.material.icons.automirrored.rounded.CallMerge
 import com.music.bitchord.data.listentogether.ServerConnectionState
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -97,6 +98,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -155,6 +157,7 @@ import com.music.bitchord.data.scrobbling.LastFM
 import com.music.bitchord.data.settings.AppSettings
 import com.music.bitchord.data.settings.LibrarySort
 import com.music.bitchord.data.settings.ThemeMode
+import com.music.bitchord.playback.SleepTimer
 import com.music.bitchord.ui.components.AccountProfileSelector
 import com.music.bitchord.ui.components.SpotifyImportAlert
 import com.music.bitchord.ui.screens.WearOsScreen
@@ -353,6 +356,41 @@ internal fun shouldSkipAfterDislike(
     currentVideoId: String?,
 ): Boolean = previousStatus != LikeStatus.DISLIKE && targetVideoId == currentVideoId
 
+
+private val TRENDING_HOME_SHELF_TITLES = setOf(
+    "trending", "trending now", "thịnh hành", "急上昇", "trendler", "в тренде",
+    "em alta", "tendenze", "sedang tren", "trendy", "热门趋势", "熱門趨勢",
+    "tendências", "tendencias", "tendències", "популярное", "популярні",
+    "популярне зараз", "פופולרי עכשיו", "популярно", "тренды",
+)
+
+/** Removes the Trending shelf from the Android home feed only. */
+private fun UiState<List<HomeShelf>>.withoutTrendingNow(): UiState<List<HomeShelf>> = when (this) {
+    is UiState.Success -> UiState.Success(
+        data.filterNot { shelf ->
+            shelf.title.trim().lowercase(Locale.ROOT) in TRENDING_HOME_SHELF_TITLES ||
+                shelf.subtitle.equals("TOP TUNES RIGHT NOW", ignoreCase = true)
+        },
+    )
+    else -> this
+}
+
+@Composable
+private fun playerSleepTimerStatus(): String? {
+    val deadline by SleepTimer.deadline.collectAsStateWithLifecycle()
+    val afterTrack by SleepTimer.afterTrack.collectAsStateWithLifecycle()
+    val remaining by produceState(initialValue = SleepTimer.remainingMs(), deadline) {
+        while (deadline != null) {
+            value = SleepTimer.remainingMs()
+            delay(1_000)
+        }
+        value = null
+    }
+    return remaining?.let { millis ->
+        val seconds = millis / 1_000
+        "%d:%02d".format(Locale.ROOT, seconds / 60, seconds % 60)
+    } ?: stringResource(R.string.after_this_song).takeIf { afterTrack }
+}
 
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -620,6 +658,7 @@ private fun BitChordApp(
     var showSpotifyLogin by remember { mutableStateOf(false) }
     var discordDialog by remember { mutableStateOf<DiscordDialog?>(null) }
     var songActions by remember { mutableStateOf<Song?>(null) }
+    var directSleepTimerFor by remember { mutableStateOf<String?>(null) }
     var showLyricsOffset by remember { mutableStateOf(false) }
     /**
      * Whether the track menu that is up was opened from the player.
@@ -729,7 +768,8 @@ private fun BitChordApp(
      * a beat before the popup does — they're one piece of news, and staggering
      * them made the top bar look like it had caught something the app hadn't.
      */
-    val updateNotice = updateAvailable
+    var skippedUpstream by remember { mutableStateOf(AppUpdateChecker.skippedVersion(context)) }
+    val updateNotice = updateAvailable?.takeUnless { it.version == skippedUpstream }
 
     LaunchedEffect(updateNotice) {
         if (updateNotice != null && !updateDialogShown) {
@@ -945,16 +985,10 @@ private fun BitChordApp(
     // and handed to every surface, so the player, the mini player and the glass
     // bar can never disagree about whether this device may drive the music.
     val controlsLocked = partyState.controlsLocked
-    var queueNotice by remember { mutableStateOf<QueueActionNotice?>(null) }
-    var queueNoticeId by remember { mutableIntStateOf(0) }
+    val noticeContext = LocalContext.current
+    // The island toast at the top, not the strip above the mini player.
     val showQueueNotice: (String) -> Unit = { message ->
-        queueNoticeId += 1
-        queueNotice = QueueActionNotice(queueNoticeId, message)
-    }
-    LaunchedEffect(queueNotice?.id) {
-        val shown = queueNotice ?: return@LaunchedEffect
-        delay(3_000)
-        if (queueNotice?.id == shown.id) queueNotice = null
+        IslandToast.show(noticeContext, message)
     }
     // Why a control did nothing, on the same strip above the mini player that
     // already answers "added to queue". Reached from every surface that had a
@@ -1519,13 +1553,13 @@ private fun BitChordApp(
                     limit = INITIAL_RADIO_TRACKS,
                 ).getOrElse {
                     if (request == playRequestGeneration) {
-                        Toast.makeText(context, R.string.couldnt_load_tracks, Toast.LENGTH_SHORT).show()
+                        IslandToast.show(context, R.string.couldnt_load_tracks, IslandToast.Kind.Error)
                     }
                     return@launch
                 }
                 if (related.isEmpty()) {
                     if (request == playRequestGeneration) {
-                        Toast.makeText(context, R.string.couldnt_load_tracks, Toast.LENGTH_SHORT).show()
+                        IslandToast.show(context, R.string.couldnt_load_tracks, IslandToast.Kind.Error)
                     }
                     return@launch
                 }
@@ -1559,11 +1593,7 @@ private fun BitChordApp(
                 // Make this station — never the queue from before it — what a
                 // fresh process restores, even if it is killed immediately.
                 activeController.commitRadioQueue()
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.radio_started, song.title),
-                    Toast.LENGTH_SHORT,
-                ).show()
+                IslandToast.show(context, context.getString(R.string.radio_started, song.title))
             }
         }
     }
@@ -1676,11 +1706,7 @@ private fun BitChordApp(
                 ?.firstOrNull()
                 ?.item
             if (hit == null) {
-                Toast.makeText(
-                    context,
-                    context.getString(R.string.couldnt_find, name),
-                    Toast.LENGTH_SHORT,
-                ).show()
+                IslandToast.show(context, context.getString(R.string.couldnt_find, name), IslandToast.Kind.Error)
             } else {
                 viewModel.openDetail(
                     hit.browseId,
@@ -1784,11 +1810,7 @@ private fun BitChordApp(
             is LinkRequest.Track -> {
                 val song = YtMusicRepository.trackLinks(request.videoId).getOrNull()
                 if (song == null) {
-                    Toast.makeText(
-                        context,
-                        context.getString(R.string.couldnt_open_link),
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    IslandToast.show(context, context.getString(R.string.couldnt_open_link), IslandToast.Kind.Error)
                 } else {
                     // A link is one song named on purpose, which is exactly the
                     // case [playRadio] exists for: play it and let AutoPlay
@@ -1922,13 +1944,13 @@ private fun BitChordApp(
         when {
             target.songs.isNotEmpty() -> stamp(target.songs)
             target.browseId == null ->
-                Toast.makeText(context, context.getString(R.string.no_tracks_here), Toast.LENGTH_SHORT).show()
+                IslandToast.show(context, context.getString(R.string.no_tracks_here))
             else -> viewModel.collectSongs(target.browseId, target.thumbnailUrl) { result ->
                 result.fold(
                     onSuccess = stamp,
                     onFailure = {
                         val message = it.message ?: context.getString(R.string.couldnt_load_tracks)
-                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                        IslandToast.show(context, message)
                     },
                 )
             }
@@ -1967,9 +1989,7 @@ private fun BitChordApp(
             }
             // The one case where refusing is fatal: below API 29 there is no
             // other way to reach the Music folder.
-            else -> Toast
-                .makeText(context, context.getString(R.string.storage_required_save), Toast.LENGTH_SHORT)
-                .show()
+            else -> IslandToast.show(context, context.getString(R.string.storage_required_save), IslandToast.Kind.Error)
         }
     }
     val mediaPermissionLauncher = rememberLauncherForActivityResult(
@@ -1980,7 +2000,7 @@ private fun BitChordApp(
             viewModel.reloadLocalDetail("local:downloads")
             viewModel.loadLibrarySongs()
         } else {
-            Toast.makeText(context, context.getString(R.string.storage_required_read), Toast.LENGTH_SHORT).show()
+            IslandToast.show(context, context.getString(R.string.storage_required_read), IslandToast.Kind.Error)
         }
     }
     val mediaPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -2118,11 +2138,7 @@ private fun BitChordApp(
             // normally needs no toast — but a refused one leaves the row exactly
             // as it was, and a button that visibly does nothing is worse than a
             // long message. So this one is said whatever the count.
-            blocked -> Toast.makeText(
-                context,
-                context.getString(R.string.wifi_only_download_refusal),
-                Toast.LENGTH_LONG,
-            ).show()
+            blocked -> IslandToast.show(context, context.getString(R.string.wifi_only_download_refusal))
             requested.size > 1 -> {
                 val message = if (songs.isEmpty()) {
                     context.getString(R.string.already_downloaded)
@@ -2133,7 +2149,7 @@ private fun BitChordApp(
                         songs.size,
                     )
                 }
-                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                IslandToast.show(context, message)
             }
         }
     }
@@ -2238,6 +2254,7 @@ private fun BitChordApp(
     // The player's whole parameter list, kept apart from the sheet that
     // mounts it so the sheet's own setup reads on its own.
     val nowPlaying: @Composable (Song) -> Unit = { song ->
+        val timerStatus = playerSleepTimerStatus()
         val effectiveSong = optimisticVersionSong?.takeIf {
             it.videoId == convertedAudioId || it.videoId == convertedVideoId || it.videoId == keepVideoId ||
             it.videoId == YtMusicRepository.cachedAudioVersion(song.videoId)?.videoId ||
@@ -2381,6 +2398,13 @@ private fun BitChordApp(
                 songMenuOrigin = null
                 songActions = song
             },
+            onOpenSleepTimer = {
+                menuFromPlayer = true
+                songMenuOrigin = null
+                directSleepTimerFor = song.videoId
+                songActions = song
+            },
+            sleepTimerStatus = timerStatus,
             onOpenAlbum = { id ->
                 dismissPlayer()
                 showReplay = false
@@ -2426,11 +2450,7 @@ private fun BitChordApp(
                                 BrowseType.ARTIST,
                             )
                         } else {
-                            Toast.makeText(
-                                context,
-                                context.getString(R.string.couldnt_find, name),
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            IslandToast.show(context, context.getString(R.string.couldnt_find, name), IslandToast.Kind.Error)
                         }
                     }
                 }
@@ -3081,7 +3101,7 @@ private fun BitChordApp(
                         )
                     } else when (key.removePrefix(TAB_KEY).toIntOrNull() ?: selectedTab) {
                         TAB_HOME -> HomeScreen(
-                            state = homeState,
+                            state = homeState.withoutTrendingNow(),
                             listState = homeListState,
                             currentSong = player.song,
                             isPlaying = player.isPlaying,
@@ -3731,8 +3751,8 @@ private fun BitChordApp(
                                         // handset outline is mush, and the glyph
                                         // has to read as "newer version" rather
                                         // than as "something about your device".
-                                        Icons.Rounded.Upgrade,
-                                        contentDescription = stringResource(R.string.update_available, update.version),
+                                        Icons.AutoMirrored.Rounded.CallMerge,
+                                        contentDescription = stringResource(R.string.upstream_notice_icon, update.version),
                                         tint = MaterialTheme.colorScheme.primary,
                                     )
                                 }
@@ -3961,7 +3981,6 @@ private fun BitChordApp(
                         .fillMaxWidth()
                         .onSizeChanged { floatingBarsHeight.intValue = it.height },
                 ) {
-                    QueueActionNoticeHost(queueNotice)
                     // Liquid glass replaces the two stacked bars with the single
                     // component they are stacked to imitate: the now playing
                     // controls dock into the tab bar rather than riding above it,
@@ -4004,7 +4023,6 @@ private fun BitChordApp(
                         .onSizeChanged { floatingBarsHeight.intValue = it.height },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    QueueActionNoticeHost(queueNotice)
                     player.song?.let { song ->
                         MiniPlayer(
                             song = song,
@@ -4220,6 +4238,7 @@ private fun BitChordApp(
             // read off the player's own visibility any more, because on a
             // tablet the player is visible whatever the menu was opened from.
             val fromPlayer = menuFromPlayer
+            val openSleepTimerOnStart = fromPlayer && directSleepTimerFor == song.videoId
             val share: () -> Unit = {
                 val sendIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "text/plain"
@@ -4412,6 +4431,10 @@ private fun BitChordApp(
                 // whatever ids it's ever going to have.
                 resolvingLinks = fromPlayer && linksLoading,
                 showSleepTimer = fromPlayer,
+                initialSleepTimerPicker = openSleepTimerOnStart,
+                onInitialSleepTimerPickerShown = {
+                    if (directSleepTimerFor == song.videoId) directSleepTimerFor = null
+                },
                 // Offered for every playing track with a YouTube upload
                 // behind it, not only for one an upgrade visibly swapped:
                 // a source ranked above YouTube can be playing its own
@@ -4485,15 +4508,11 @@ private fun BitChordApp(
                             // one thing the system's own paste confirmation
                             // doesn't say, and an empty log is a real
                             // outcome worth seeing rather than a silent one.
-                            Toast.makeText(
-                                context,
-                                context.resources.getQuantityString(
+                            IslandToast.show(context, context.resources.getQuantityString(
                                     R.plurals.log_copied_line_count,
                                     text.lineSequence().count(),
                                     text.lineSequence().count(),
-                                ),
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                                ))
                         }
                     }
                 } else {
@@ -4511,7 +4530,10 @@ private fun BitChordApp(
         }
         songActions?.takeIf { songMenuOrigin == null }?.let { song ->
             ModalBottomSheet(
-                onDismissRequest = { songActions = null },
+                onDismissRequest = {
+                    songActions = null
+                    directSleepTimerFor = null
+                },
                 // The sheet paints itself in the track's own colours, corners
                 // and drag handle included — see SongActionsSheet.
                 containerColor = Color.Transparent,
@@ -4763,14 +4785,10 @@ private fun BitChordApp(
                     {
                         val nowPinned = AppSettings.togglePinnedPlaylist(id)
                         if (!nowPinned && id !in pinnedPlaylists) {
-                            Toast.makeText(
-                                context,
-                                context.getString(
+                            IslandToast.show(context, context.getString(
                                     R.string.pinned_playlist_limit,
                                     AppSettings.MAX_PINNED_PLAYLISTS,
-                                ),
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                                ))
                         }
                         browseActions = null
                     }
@@ -4997,6 +5015,8 @@ private fun BitChordApp(
             }
         }
 
+        IslandToastHost()
+
         // ---- Update available (once per launch; held until the welcome is done) ----
         if (showUpdateDialog && onboardingComplete) {
             updateNotice?.let { update ->
@@ -5004,28 +5024,14 @@ private fun BitChordApp(
                     version = update.version,
                     notes = update.notes,
                     hazeState = hazeState,
-                    // A download in progress keeps running behind the closed
-                    // sheet — only the sheet itself goes away. The top bar's
-                    // update icon reopens it onto whatever state it reached.
                     onDismiss = { showUpdateDialog = false },
-                    onDownload = {
-                        if (update.apkUrl != null) {
-                            scope.launch { AppUpdateChecker.downloadApk(context) }
-                        } else {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseUrl)))
-                            showUpdateDialog = false
-                        }
-                    },
-                    onCancelDownload = {
-                        AppUpdateChecker.cancelDownload()
-                    },
-                    onInstall = {
-                        val ready = AppUpdateChecker.download.value as? AppUpdateChecker.DownloadState.Ready
-                        ready?.let { AppUpdateChecker.installApk(context, it.file) }
-                    },
-                    onOpenReleasePage = {
-                        AppUpdateChecker.resetDownload()
+                    onViewRelease = {
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseUrl)))
+                        showUpdateDialog = false
+                    },
+                    onSkipVersion = {
+                        AppUpdateChecker.skipVersion(context, update.version)
+                        skippedUpstream = update.version
                         showUpdateDialog = false
                     },
                 )

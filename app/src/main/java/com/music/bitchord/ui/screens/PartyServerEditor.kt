@@ -1,6 +1,6 @@
 package com.music.bitchord.ui.screens
 
-import android.widget.Toast
+import com.music.bitchord.ui.components.IslandToast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,7 +79,7 @@ fun PartyServerEditor(hazeState: HazeState, onDismiss: () -> Unit) {
                         ServerConnectionState.Checking -> null
                     }
                     if (messageRes != null) {
-                        Toast.makeText(context, context.getString(messageRes), Toast.LENGTH_SHORT).show()
+                        IslandToast.show(context, context.getString(messageRes))
                     }
                     onDismiss()
                 }
@@ -93,11 +93,7 @@ fun PartyServerEditor(hazeState: HazeState, onDismiss: () -> Unit) {
         scope.launch {
             ListenTogether.setCustomServerUrl("")
             busy = false
-            Toast.makeText(
-                context,
-                context.getString(R.string.listen_together_switched_to_default),
-                Toast.LENGTH_SHORT,
-            ).show()
+            IslandToast.show(context, context.getString(R.string.listen_together_switched_to_default))
             onDismiss()
         }
     }
